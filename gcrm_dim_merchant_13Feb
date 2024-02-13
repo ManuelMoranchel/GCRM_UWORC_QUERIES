@@ -1,0 +1,167 @@
+with merchants as (
+
+select distinct coalesce(dm.uuid,'') as uuid,
+    coalesce(dc.country_name,'') as country_name,
+    dc.country_id,
+    dm.city_id,
+    coalesce(dc.city_name,'') as city_name, 
+    coalesce(dm.store_name,'') as store_name,
+    coalesce(dm.uber_merchant_type,'') as uber_merchant_type,
+    coalesce(dm.fulfillment_types,'') as fulfillment_types,
+    coalesce(dm.currency_code,'') as currency_code,--------------------------------NEW
+    coalesce(lower(dm.primary_contact_email),'') as primary_contact_email, --------------------------------NEW
+    
+    coalesce(dm.location_type,'') as location_type,
+    cast(dm.first_visible_timestamp_local as date) as first_visible_timestamp_local,
+    cast(dm.first_visible_timestamp_utc as date) as first_visible_timestamp_utc,
+    coalesce(dm.parent_chain_uuid,'') as parent_chain_uuid,
+    coalesce(cast(dm.parent_chain_name as varchar),'') as parent_chain_name,    
+    cast(dm.first_order_timestamp_utc as date) as first_order_timestamp_utc,
+    cast(dm.first_order_timestamp_local as date ) as first_order_timestamp_local,
+    coalesce(dm.first_order_by_fulfillment_type_utc,'') as first_order_by_fulfillment_type_utc,
+    coalesce(dm.first_order_by_fulfillment_type_local,'') as first_order_by_fulfillment_type_local,
+    coalesce(cast(dm.is_eats_marketplace as varchar),'false') as is_eats_marketplace,
+    coalesce(cast(dm.is_visible as varchar),'false') as is_visible,
+    coalesce(dm.status,'') as status,
+    coalesce(dm.primary_contact_phone,'') as primary_contact_phone_dm,
+    coalesce(primary_contact_email,'') as primary_contact_email_dm,
+    coalesce(case when index(payment_subscriber_emails,',')>0 then split_part(payment_subscriber_emails, ',', 1) 
+                else payment_subscriber_emails end,'') as payment_subscriber_email_1_dm,
+    coalesce(case when index(payment_subscriber_emails,',')>0 then split_part(payment_subscriber_emails, ',', 2) 
+                end,'') as payment_subscriber_email_2_dm,
+    coalesce(case when index(payment_subscriber_emails,',')>0 then split_part(payment_subscriber_emails, ',', 3) 
+                end,'') as payment_subscriber_email_3_dm,
+    coalesce(case when index(payment_subscriber_emails,',')>0 then split_part(payment_subscriber_emails, ',', 4) 
+                end,'') as payment_subscriber_email_4_dm,
+    coalesce(case when index(payment_subscriber_emails,',')>0 then split_part(payment_subscriber_emails, ',', 5) 
+                end,'') as payment_subscriber_email_5_dm,
+    coalesce(case when index(payment_subscriber_emails,',')>0 then split_part(payment_subscriber_emails, ',', 6) 
+                end,'') as payment_subscriber_email_6_dm,
+    coalesce(case when index(payment_subscriber_emails,',')>0 then split_part(payment_subscriber_emails, ',', 7) 
+                end,'') as payment_subscriber_email_7_dm,
+    coalesce(case when index(payment_subscriber_emails,',')>0 then split_part(payment_subscriber_emails, ',', 8) 
+                end,'') as payment_subscriber_email_8_dm,
+    cast(dm.first_available_timestamp_local as date) as first_available_timestamp_local,
+    cast(dm.first_available_timestamp_utc as date) as first_available_timestamp_utc,
+    coalesce(cast(dm.is_test_account as varchar),'false') as is_test_account,
+    coalesce(dm.pos_integration_type,'') as pos_integration_type,
+    coalesce(dm.business_location_uuid,'') as business_location_uuid,
+
+    CASE
+      WHEN acc_pl.Point_of_Sale_System__c IS NOT NULL
+      THEN 'POS'
+      ELSE 'Non-POS'
+    END AS pos_system,
+    
+    coalesce(acc_pl.Point_of_Sale_System__c,'') as point_of_sale_system,
+    coalesce(acc_pl.re_business_category__c,'')  as merchant_category,
+     coalesce(acc_pl.named_account__c,'') as segment,
+     
+    coalesce(acc_pl.ue_location_type__c ,'') as ue_location_type__c,
+    coalesce(acc_pl.Additional_Notes__c ,'') as Additional_Notes__c,
+    coalesce(acc_st.id,'')  as storefront_id_sf,
+    coalesce(acc_pl.id,'')  as physical_location_id_sf,
+    coalesce(acc_pl.parentid,'')  as group_account_id_sf,
+    coalesce(acc_pl.email__c,'') as email_pl,
+    coalesce(acc_pl.merchant_contact_email__c,'') as  merchant_contact_email_pl,
+    coalesce(acc_pl.primary_contact_email__c,'') as primary_contact_pl,
+    
+    coalesce(acc_ga.email__c,'') as email_ga,
+    coalesce(acc_ga.merchant_contact_email__c,'') as  merchant_contact_email_ga,
+    coalesce(acc_ga.primary_contact_email__c,'') as primary_contact_ga,
+    coalesce(dc.mega_region,'') as mega_region,
+    coalesce(dc.region,'') as region
+    --coalesce(Case when lower(ob.initial_photography_schedule_link__c) is null then ''  when lower(ob.initial_photography_schedule_link__c) not like '%stock%' then 'Photoshoot Ordered' else 'Not Ordered' end ,'') as photoshoot--------------------------------NEW
+    
+    ,coalesce(cast(
+case when dm.uber_merchant_type not in ('MERCHANT_TYPE_RESTAURANT','MERCHANT_TYPE_UNKNOWN','') and dm.location_type != 'DELIVERY_API' then 'NV' 
+        when dm.uber_merchant_type  in ('MERCHANT_TYPE_RESTAURANT','MERCHANT_TYPE_UNKNOWN','') and dm.location_type != 'DELIVERY_API' then 'Eats'
+        when dm.location_type = 'DELIVERY_API' then 'Direct' else 'Eats' end as VARCHAR),'') as line_of_business
+    
+    
+    
+    
+from eds.dim_merchant dm 
+JOIN dwh.dim_city dc on dm.city_id = dc.city_id
+    JOIN secure_kirby_external_data.salesforce_eats_account acc_st ON acc_st.uuid__c = dm.uuid
+    JOIN secure_kirby_external_data.salesforce_eats_account acc_pl ON acc_pl.id = acc_st.parentid
+    JOIN secure_kirby_external_data.salesforce_eats_account acc_ga ON acc_ga.id = acc_pl.parentid
+    
+--LEFT JOIN secure_kirby_external_data.salesforce_eats_eats_onboarding__c ob ON ob.storefront__c=acc_st.id--------------------------------NEW
+
+    
+WHERE 1=1
+    AND dm.is_visible = TRUE
+    AND dm.status = 'ACTIVE'
+    AND dm.is_test_account = FALSE
+    AND dm.location_type<>'DELIVERY_API'
+    ),
+
+multilocation as ( --------------------------------NEW
+  SELECT
+    parent_chain_uuid,
+    primary_contact_email as email,
+    count(*) as locations
+  FROM
+    merchants
+  GROUP BY
+    1,2
+),
+    
+
+first_trip_data AS (
+                  SELECT
+                      restaurant_uuid,
+                      min(eater_request_timestamp_utc) as first_trip_date,
+                      max(eater_request_timestamp_utc) as last_trip_date,
+                      COUNT(workflow_uuid) as Total_orders,
+                      sum(case when DATE(datestr) >= CURRENT_DATE - INTERVAL '7' DAY then 1 else 0 end) as Total_Orders_L7D,
+                      sum(case when DATE(datestr) >= CURRENT_DATE - INTERVAL '30' DAY then 1 else 0 end) as Total_Orders_L30D,
+                      sum(case when DATE(datestr) >= CURRENT_DATE - INTERVAL '90' DAY then 1 else 0 end) as Total_Orders_L90D
+                  FROM
+                      eds.fact_eats_trip
+                  WHERE
+                      1 = 1
+                      AND is_completed = true
+                      AND DATE (datestr) <= CURRENT_DATE
+                  GROUP BY 1
+                    ),
+payment_profile AS (
+                    SELECT entity_uuid, 
+                    last_updated_at, 
+                    profile_type,
+                    is_deleted,
+                    disbursement_status,
+                    row_number()over(partition by entity_uuid order by last_updated_at desc) as r 
+                    from money.dim_payment_profile_latest
+                    )
+SELECT m.*, 
+
+cast(ft.first_trip_date as DATE) as first_trip_date,
+coalesce(cast(ft.Total_orders as double),0) as Total_Orders,
+coalesce(cast(ft.Total_Orders_L7D as double),0) as Total_Orders_L7D,
+coalesce(cast(ft.Total_Orders_L30D as double),0) as Total_Orders_L30D,
+coalesce(cast(ft.Total_Orders_L90D as double),0) as Total_Orders_L90D,
+CASE WHEN t1.BASE is NULL THEN FALSE ELSE TRUE END AS has_tax_profile,
+coalesce(ppl.profile_type,'') as profile_type,
+coalesce(cast(ppl.is_deleted as varchar),'') as is_deleted,
+coalesce(ppl.disbursement_status,'') AS payment_profile_status,
+cast(ft.last_trip_date as date) as last_trip_date,
+coalesce(cast(datediff('day', date(ft.last_trip_date),date(current_date))  as double),0) as days_since_last_trip,
+
+CASE
+    WHEN ml.locations > 1
+    then TRUE
+    ELSE FALSE
+  END AS multilocation_flag, --------------------------------NEW
+ 
+ml.locations as number_of_locations_pce --------------------------------NEW
+  
+
+FROM merchants m 
+
+LEFT JOIN first_trip_data ft on m.uuid = ft.restaurant_uuid
+LEFT JOIN rawdata.schemaless_trifle_tax_profiles_rows t1 on m.uuid = t1._row_key and contains(t1.customer_context.entity_types,'org:eats:restaurant')
+and DATE (t1.datestr) <= CURRENT_DATE
+LEFT JOIN payment_profile ppl on ppl.entity_uuid = m.business_location_uuid and ppl.r=1
+LEFT JOIN multilocation ml on ml.email = m.primary_contact_email and ml.parent_chain_uuid = m.parent_chain_uuid--------------------------------NEW
