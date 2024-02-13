@@ -1,0 +1,352 @@
+with base as (
+select dm.uuid as restaurant_uuid,
+ coalesce(dc.mega_region,'') as mega_region,
+    coalesce(dc.region,'') as region
+from eds.dim_merchant dm 
+JOIN dwh.dim_city dc on dm.city_id = dc.city_id
+WHERE 1=1
+    AND dm.is_visible = TRUE
+    AND dm.status = 'ACTIVE'
+    AND dm.is_test_account = FALSE
+    AND dm.location_type<>'DELIVERY_API'
+ 
+    )
+
+, ss AS 
+(
+   SELECT
+      DATE_TRUNC('day', DATE(datestr)) AS datestr,
+      f.restaurant_uuid,
+      SUM(n_sessions_feed_impression) AS sessions_feed_impression,
+      SUM(n_sessions_menu_impression) AS sessions_menu_impression, 
+      SUM(n_sessions_any_impression) AS n_sessions_any_impression
+   FROM
+      eds.agg_restaurant_funnel f
+   JOIN base b ON f.restaurant_uuid = b.restaurant_uuid
+   WHERE
+	   DATE(datestr) >= CURRENT_DATE - INTERVAL '90' DAY 
+         and DATE(datestr) < CURRENT_DATE
+         GROUP BY 1, 2
+)
+
+, ss_L7D AS (
+
+SELECT 
+restaurant_uuid,
+SUM(sessions_feed_impression) AS sessions_feed_impression_L7D,
+SUM(sessions_menu_impression) AS sessions_menu_impression_L7D,
+SUM(n_sessions_any_impression) AS n_sessions_any_impression_L7D
+FROM ss
+   WHERE
+	   DATE(datestr) >= CURRENT_DATE - INTERVAL '7' DAY 
+         and DATE(datestr) < CURRENT_DATE
+GROUP BY 1
+)
+
+, ss_L30D AS (
+
+SELECT 
+restaurant_uuid,
+SUM(sessions_feed_impression) AS sessions_feed_impression_L30D,
+SUM(sessions_menu_impression) AS sessions_menu_impression_L30D,
+SUM(n_sessions_any_impression) AS n_sessions_any_impression_L30D
+FROM ss
+   WHERE
+	   DATE(datestr) >= CURRENT_DATE - INTERVAL '30' DAY 
+         and DATE(datestr) < CURRENT_DATE
+GROUP BY 1
+)
+
+, ss_L90D AS (
+
+SELECT 
+restaurant_uuid,
+SUM(sessions_feed_impression) AS sessions_feed_impression_L90D,
+SUM(sessions_menu_impression) AS sessions_menu_impression_L90D,
+SUM(n_sessions_any_impression) AS n_sessions_any_impression_L90D
+FROM ss
+   WHERE
+	   DATE(datestr) >= CURRENT_DATE - INTERVAL '90' DAY 
+         and DATE(datestr) < CURRENT_DATE
+GROUP BY 1
+)
+
+
+, ads_credits_spending AS (
+    SELECT
+        DATE_FORMAT(DATE_TRUNC('day', date(datestr)), '%Y-%m-%d') AS datestr,
+        ab.restaurant_uuid,
+        SUM(ab.credit_total) / 100000.0 AS credits,  
+        SUM(ab.money_total) / 100000.0 AS net_spend,
+        (SUM(ab.credit_total) + SUM(ab.money_total)) / 100000.0 AS actual_ad_spend
+    FROM ads.ads_billing_charge_restaurant_requests AS ab
+    JOIN base b ON ab.restaurant_uuid = b.restaurant_uuid
+      AND DATE(ab.start_time) BETWEEN DATE(DATE_TRUNC('day', CURRENT_DATE) - INTERVAL '90' DAY)
+                                 AND DATE(current_date)
+      AND DATE(end_time) >= DATE(DATE_TRUNC('day', CURRENT_DATE) - INTERVAL '90' DAY) 
+    GROUP BY 1, 2
+)
+
+,ads_credit_L7D AS (
+
+SELECT 
+restaurant_uuid,
+SUM(credits) as credits_L7D, 
+SUM(net_spend) as net_spend_L7D, 
+SUM(actual_ad_spend) as actual_ad_spend_L7D
+FROM ads_credits_spending
+WHERE DATE(datestr) >=  CURRENT_DATE - INTERVAL '7' DAY
+AND  DATE(datestr) < CURRENT_DATE
+GROUP BY 1
+)
+
+,ads_credit_L30D AS (
+SELECT 
+restaurant_uuid,
+SUM(credits) as credits_L30D, 
+SUM(net_spend) as net_spend_L30D, 
+SUM(actual_ad_spend) as actual_ad_spend_L30D
+FROM ads_credits_spending
+WHERE DATE(datestr) >=  CURRENT_DATE - INTERVAL '30' DAY
+AND  DATE(datestr) < CURRENT_DATE
+GROUP BY 1
+)
+
+
+,ads_credit_L90D AS (
+SELECT 
+restaurant_uuid,
+SUM(credits) as credits_L90D, 
+SUM(net_spend) as net_spend_L90D, 
+SUM(actual_ad_spend) as actual_ad_spend_L90D
+
+FROM ads_credits_spending
+WHERE DATE(datestr) >=  CURRENT_DATE - INTERVAL '90' DAY
+AND  DATE(datestr) < CURRENT_DATE
+GROUP BY 1
+)
+
+, ads_metrics as (
+SELECT 
+
+date_trunc('day',date(ds.datestr)) as datestr
+,ds.restaurant_uuid
+,ds.impressions
+,ds.clicks
+,ds.spend_usd
+,exr.exchange_rate
+,ds.orders
+,ds.exposed_orders
+,ds.revenue_usd
+,ds.exposed_revenue_usd
+
+from ads.ads_metrics_daily_utc ds
+join dwh.fact_usd_exchange_rates exr on date(ds.datestr) = date(exr.date_id) and ds.currency_code = exr.currency_code
+JOIN base b ON ds.restaurant_uuid = b.restaurant_uuid
+WHERE DATE(ds.datestr) >=  CURRENT_DATE - INTERVAL '90' DAY
+AND  DATE(ds.datestr) < CURRENT_DATE
+)
+
+
+
+
+, ads_metrics_L7D as (
+SELECT
+
+ds.restaurant_uuid
+,ROUND(sum(cast(ds.impressions as double)),2) AS impressions_L7D
+,ROUND(sum(cast(ds.clicks as double)),2) AS clicks_L7D
+,ROUND(sum(cast(ds.spend_usd*exchange_rate as double)),2) AS spending_L7D
+,ROUND(case when sum(cast(ds.clicks as double)) > 0 then sum(cast(ds.clicks as double))/sum(cast(ds.impressions as double)) else 0 end,4) AS ctr_L7D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.orders as double))/sum(cast(ds.clicks as double)) else 0 end,4) AS cvr_L7D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.exposed_orders as double))/sum(cast(ds.clicks as double)) else 0 end,4) AS exposed_cvr_L7D
+,ROUND(sum(cast(ds.revenue_usd*exchange_rate as double)),2) AS revenue_local_L7D
+,ROUND(sum(cast(ds.revenue_usd as double)),2) AS revenue_usd_L7D
+,ROUND(case when sum(cast(ds.clicks as double)) > 0 then sum(cast(ds.spend_usd*exchange_rate as double))/sum(cast(ds.clicks as double)) else 0 end,2) AS cpc_local_L7D
+,ROUND(case when sum(cast(ds.clicks as double)) > 0 then sum(cast(ds.spend_usd as double))/sum(cast(ds.clicks as double)) else 0 end,2) AS cpc_usd_L7D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.spend_usd*exchange_rate as double))/sum(cast(ds.orders as double)) else 0 end,2) AS cpo_local_L7D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.spend_usd as double))/sum(cast(ds.orders as double)) else 0 end,2) AS cpo_usd_L7D
+,ROUND(sum(cast(ds.orders as double)),2) AS ads_orders_L7D
+,ROUND(sum(cast(ds.exposed_orders as double)),2) AS exposed_ads_orders_L7D
+,ROUND(sum(cast(ds.exposed_revenue_usd*exchange_rate as double)),2) AS exposed_revenue_local_L7D
+,ROUND(sum(cast(ds.exposed_revenue_usd as double)),2) AS exposed_revenue_usd_L7D
+,ROUND(case when sum(cast(ds.spend_usd as double)) > 0 then sum(cast(ds.revenue_usd as double))/sum(cast(ds.spend_usd as double)) else 0 end,2) AS roas_L7D
+,ROUND(case when sum(cast(ds.spend_usd as double)) > 0 then sum(cast(ds.exposed_revenue_usd as double))/sum(cast(ds.spend_usd as double)) else 0 end,2) AS exposed_roas_L7D
+  
+FROM ads_metrics ds
+WHERE DATE(ds.datestr) >=  CURRENT_DATE - INTERVAL '7' DAY
+AND  DATE(ds.datestr) < CURRENT_DATE
+GROUP BY 1
+)
+
+, ads_metrics_L30D as (
+SELECT
+
+ds.restaurant_uuid
+,ROUND(sum(cast(ds.impressions as double)),2) AS impressions_L30D
+,ROUND(sum(cast(ds.clicks as double)),2) AS clicks_L30D
+,ROUND(sum(cast(ds.spend_usd*exchange_rate as double)),2) AS spending_L30D
+,ROUND(case when sum(cast(ds.clicks as double)) > 0 then sum(cast(ds.clicks as double))/sum(cast(ds.impressions as double)) else 0 end,4) AS ctr_L30D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.orders as double))/sum(cast(ds.clicks as double)) else 0 end,4) AS cvr_L30D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.exposed_orders as double))/sum(cast(ds.clicks as double)) else 0 end,4) AS exposed_cvr_L30D
+,ROUND(sum(cast(ds.revenue_usd*exchange_rate as double)),2) AS revenue_local_L30D
+,ROUND(sum(cast(ds.revenue_usd as double)),2) AS revenue_usd_L30D
+,ROUND(case when sum(cast(ds.clicks as double)) > 0 then sum(cast(ds.spend_usd*exchange_rate as double))/sum(cast(ds.clicks as double)) else 0 end,2) AS cpc_local_L30D
+,ROUND(case when sum(cast(ds.clicks as double)) > 0 then sum(cast(ds.spend_usd as double))/sum(cast(ds.clicks as double)) else 0 end,2) AS cpc_usd_L30D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.spend_usd*exchange_rate as double))/sum(cast(ds.orders as double)) else 0 end,2) AS cpo_local_L30D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.spend_usd as double))/sum(cast(ds.orders as double)) else 0 end,2) AS cpo_usd_L30D
+,ROUND(sum(cast(ds.orders as double)),2) AS ads_orders_L30D
+,ROUND(sum(cast(ds.exposed_orders as double)),2) AS exposed_ads_orders_L30D
+,ROUND(sum(cast(ds.exposed_revenue_usd*exchange_rate as double)),2) AS exposed_revenue_local_L30D
+,ROUND(sum(cast(ds.exposed_revenue_usd as double)),2) AS exposed_revenue_usd_L30D
+,ROUND(case when sum(cast(ds.spend_usd as double)) > 0 then sum(cast(ds.revenue_usd as double))/sum(cast(ds.spend_usd as double)) else 0 end,2) AS roas_L30D
+,ROUND(case when sum(cast(ds.spend_usd as double)) > 0 then sum(cast(ds.exposed_revenue_usd as double))/sum(cast(ds.spend_usd as double)) else 0 end,2) AS exposed_roas_L30D
+
+FROM ads_metrics ds
+WHERE DATE(ds.datestr) >=  CURRENT_DATE - INTERVAL '30' DAY
+AND  DATE(ds.datestr) < CURRENT_DATE
+GROUP BY 1
+)
+
+, ads_metrics_L90D as (
+SELECT
+
+ds.restaurant_uuid
+,ROUND(sum(cast(ds.impressions as double)),2) AS impressions_L90D
+,ROUND(sum(cast(ds.clicks as double)),2) AS clicks_L90D
+,ROUND(sum(cast(ds.spend_usd*exchange_rate as double)),2) AS spending_L90D
+,ROUND(case when sum(cast(ds.clicks as double)) > 0 then sum(cast(ds.clicks as double))/sum(cast(ds.impressions as double)) else 0 end,4) AS ctr_L90D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.orders as double))/sum(cast(ds.clicks as double)) else 0 end,4) AS cvr_L90D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.exposed_orders as double))/sum(cast(ds.clicks as double)) else 0 end,4) AS exposed_cvr_L90D
+,ROUND(sum(cast(ds.revenue_usd*exchange_rate as double)),2) AS revenue_local_L90D
+,ROUND(sum(cast(ds.revenue_usd as double)),2) AS revenue_usd_L90D
+,ROUND(case when sum(cast(ds.clicks as double)) > 0 then sum(cast(ds.spend_usd*exchange_rate as double))/sum(cast(ds.clicks as double)) else 0 end,2) AS cpc_local_L90D
+,ROUND(case when sum(cast(ds.clicks as double)) > 0 then sum(cast(ds.spend_usd as double))/sum(cast(ds.clicks as double)) else 0 end,2) AS cpc_usd_L90D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.spend_usd*exchange_rate as double))/sum(cast(ds.orders as double)) else 0 end,2) AS cpo_local_L90D
+,ROUND(case when sum(cast(ds.orders as double)) > 0 then sum(cast(ds.spend_usd as double))/sum(cast(ds.orders as double)) else 0 end,2) AS cpo_usd_L90D
+,ROUND(sum(cast(ds.orders as double)),2) AS ads_orders_L90D
+,ROUND(sum(cast(ds.exposed_orders as double)),2) AS exposed_ads_orders_L90D
+,ROUND(sum(cast(ds.exposed_revenue_usd*exchange_rate as double)),2) AS exposed_revenue_local_L90D
+,ROUND(sum(cast(ds.exposed_revenue_usd as double)),2) AS exposed_revenue_usd_L90D
+,ROUND(case when sum(cast(ds.spend_usd as double)) > 0 then sum(cast(ds.revenue_usd as double))/sum(cast(ds.spend_usd as double)) else 0 end,2) AS roas_L90D
+,ROUND(case when sum(cast(ds.spend_usd as double)) > 0 then sum(cast(ds.exposed_revenue_usd as double))/sum(cast(ds.spend_usd as double)) else 0 end,2) AS exposed_roas_L90D
+
+FROM ads_metrics ds
+WHERE DATE(ds.datestr) >=  CURRENT_DATE - INTERVAL '90' DAY
+AND  DATE(ds.datestr) < CURRENT_DATE
+GROUP BY 1
+)
+
+
+
+
+
+
+
+
+SELECT 
+
+b.restaurant_uuid as restaurant_uuid_2,
+b.mega_region,
+b.region
+
+,CAST(ROUND(COALESCE(TRY(CAST(s1.sessions_feed_impression_L7D AS  double)),0),1) AS VARCHAR) as sessions_feed_impression_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(s2.sessions_feed_impression_L30D AS  double)),0),1) AS VARCHAR) as sessions_feed_impression_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(s3.sessions_feed_impression_L90D AS  double)),0),1) AS VARCHAR) as sessions_feed_impression_L90D
+
+,CAST(ROUND(COALESCE(TRY(CAST(s1.sessions_menu_impression_L7D AS  double)),0),1) AS VARCHAR) as sessions_menu_impression_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(s2.sessions_menu_impression_L30D AS  double)),0),1) AS VARCHAR) as sessions_menu_impression_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(s3.sessions_menu_impression_L90D AS  double)),0),1) AS VARCHAR) as sessions_menu_impression_L90D
+
+,CAST(ROUND(COALESCE(TRY(CAST(s1.n_sessions_any_impression_L7D AS  double)),0),1) AS VARCHAR) as n_sessions_any_impression_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(s2.n_sessions_any_impression_L30D AS  double)),0),1) AS VARCHAR) as n_sessions_any_impression_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(s3.n_sessions_any_impression_L90D AS  double)),0),1) AS VARCHAR) as n_sessions_any_impression_L90D
+
+
+,CAST(ROUND(COALESCE(TRY(CAST(ad1.credits_L7D AS  double)),0),1) AS VARCHAR) as credits_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(ad2.credits_L30D AS  double)),0),1) AS VARCHAR) as credits_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(ad3.credits_L90D AS  double)),0),1) AS VARCHAR) as credits_L90D
+
+,CAST(ROUND(COALESCE(TRY(CAST(ad1.net_spend_L7D AS  double)),0),1) AS VARCHAR) as net_spend_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(ad2.net_spend_L30D AS  double)),0),1) AS VARCHAR) as net_spend_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(ad3.net_spend_L90D AS  double)),0),1) AS VARCHAR) as net_spend_L90D
+
+,CAST(ROUND(COALESCE(TRY(CAST(ad1.actual_ad_spend_L7D AS  double)),0),1) AS VARCHAR) as actual_ad_spend_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(ad2.actual_ad_spend_L30D AS  double)),0),1) AS VARCHAR) as actual_ad_spend_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(ad3.actual_ad_spend_L90D AS  double)),0),1) AS VARCHAR) as actual_ad_spend_L90D
+
+
+,CAST(ROUND(COALESCE(TRY(CAST(a1.impressions_L7D AS  double)),0),1) AS VARCHAR) AS impressions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.clicks_L7D AS  double)),0),1) AS VARCHAR) AS clicks_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.spending_L7D AS  double)),0),1) AS VARCHAR) AS spending_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.ctr_L7D AS  double)),0),4) AS VARCHAR) AS ctr_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.cvr_L7D AS  double)),0),4) AS VARCHAR) AS cvr_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.exposed_cvr_L7D AS  double)),0),4) AS VARCHAR) AS exposed_cvr_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.revenue_local_L7D AS  double)),0),1) AS VARCHAR) AS revenue_local_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.revenue_usd_L7D AS  double)),0),1) AS VARCHAR) AS revenue_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.cpc_local_L7D AS  double)),0),4) AS VARCHAR) AS cpc_local_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.cpc_usd_L7D AS  double)),0),4) AS VARCHAR) AS cpc_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.cpo_local_L7D AS  double)),0),4) AS VARCHAR) AS cpo_local_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.cpo_usd_L7D AS  double)),0),4) AS VARCHAR) AS cpo_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.ads_orders_L7D AS  double)),0),1) AS VARCHAR) AS ads_orders_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.exposed_ads_orders_L7D AS  double)),0),1) AS VARCHAR) AS exposed_ads_orders_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.exposed_revenue_local_L7D AS  double)),0),1) AS VARCHAR) AS exposed_revenue_local_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.exposed_revenue_usd_L7D AS  double)),0),1) AS VARCHAR) AS exposed_revenue_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.roas_L7D AS  double)),0),1) AS VARCHAR) AS roas_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(a1.exposed_roas_L7D AS  double)),0),1) AS VARCHAR) AS exposed_roas_L7D
+
+
+,CAST(ROUND(COALESCE(TRY(CAST(a2.impressions_L30D AS  double)),0),1) AS VARCHAR) AS impressions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.clicks_L30D AS  double)),0),1) AS VARCHAR) AS clicks_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.spending_L30D AS  double)),0),1) AS VARCHAR) AS spending_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.ctr_L30D AS  double)),0),4) AS VARCHAR) AS ctr_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.cvr_L30D AS  double)),0),4) AS VARCHAR) AS cvr_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.exposed_cvr_L30D AS  double)),0),4) AS VARCHAR) AS exposed_cvr_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.revenue_local_L30D AS  double)),0),1) AS VARCHAR) AS revenue_local_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.revenue_usd_L30D AS  double)),0),1) AS VARCHAR) AS revenue_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.cpc_local_L30D AS  double)),0),4) AS VARCHAR) AS cpc_local_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.cpc_usd_L30D AS  double)),0),4) AS VARCHAR) AS cpc_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.cpo_local_L30D AS  double)),0),4) AS VARCHAR) AS cpo_local_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.cpo_usd_L30D AS  double)),0),4) AS VARCHAR) AS cpo_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.ads_orders_L30D AS  double)),0),1) AS VARCHAR) AS ads_orders_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.exposed_ads_orders_L30D AS  double)),0),1) AS VARCHAR) AS exposed_ads_orders_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.exposed_revenue_local_L30D AS  double)),0),1) AS VARCHAR) AS exposed_revenue_local_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.exposed_revenue_usd_L30D AS  double)),0),1) AS VARCHAR) AS exposed_revenue_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.roas_L30D AS  double)),0),1) AS VARCHAR) AS roas_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(a2.exposed_roas_L30D AS  double)),0),1) AS VARCHAR) AS exposed_roas_L30D
+
+,CAST(ROUND(COALESCE(TRY(CAST(a3.impressions_L90D AS  double)),0),1) AS VARCHAR) AS impressions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.clicks_L90D AS  double)),0),1) AS VARCHAR) AS clicks_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.spending_L90D AS  double)),0),1) AS VARCHAR) AS spending_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.ctr_L90D AS  double)),0),4) AS VARCHAR) AS ctr_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.cvr_L90D AS  double)),0),4) AS VARCHAR) AS cvr_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.exposed_cvr_L90D AS  double)),0),4) AS VARCHAR) AS exposed_cvr_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.revenue_local_L90D AS  double)),0),1) AS VARCHAR) AS revenue_local_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.revenue_usd_L90D AS  double)),0),1) AS VARCHAR) AS revenue_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.cpc_local_L90D AS  double)),0),4) AS VARCHAR) AS cpc_local_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.cpc_usd_L90D AS  double)),0),4) AS VARCHAR) AS cpc_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.cpo_local_L90D AS  double)),0),4) AS VARCHAR) AS cpo_local_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.cpo_usd_L90D AS  double)),0),4) AS VARCHAR) AS cpo_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.ads_orders_L90D AS  double)),0),1) AS VARCHAR) AS ads_orders_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.exposed_ads_orders_L90D AS  double)),0),1) AS VARCHAR) AS exposed_ads_orders_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.exposed_revenue_local_L90D AS  double)),0),1) AS VARCHAR) AS exposed_revenue_local_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.exposed_revenue_usd_L90D AS  double)),0),1) AS VARCHAR) AS exposed_revenue_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.roas_L90D AS  double)),0),1) AS VARCHAR) AS roas_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(a3.exposed_roas_L90D AS  double)),0),1) AS VARCHAR) AS exposed_roas_L90D
+
+
+
+
+FROM BASE b 
+LEFT JOIN ss_L7D as s1 on s1.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN ss_L30D as s2 on s2.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN ss_L90D as s3 on s3.restaurant_uuid = b.restaurant_uuid
+
+LEFT JOIN ads_credit_L7D AS ad1 ON ad1.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN ads_credit_L30D AS ad2 ON ad2.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN ads_credit_L90D AS ad3 ON ad3.restaurant_uuid = b.restaurant_uuid
+
+LEFT JOIN ads_metrics_L7D AS a1 ON a1.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN ads_metrics_L30D AS a2 ON a2.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN ads_metrics_L90D AS a3 ON a3.restaurant_uuid = b.restaurant_uuid
+
