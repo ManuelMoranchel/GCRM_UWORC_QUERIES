@@ -1,0 +1,240 @@
+with base as (
+SELECT dm.uuid as restaurant_uuid, dm.primary_contact_email as email, 'Primary_contact_email' as mtype, dm.store_name, dm.city_id,
+date_diff('day',  DATE(first_order_timestamp_utc), CURRENT_DATE) as days_after_ft, 
+CASE WHEN mc.campaign_email IS NULL THEN FALSE ELSE TRUE END AS anz_ads_adoption_campaign
+FROM eds.dim_merchant dm 
+JOIN dwh.dim_city dc on dm.city_id = dc.city_id
+JOIN secure_kirby_external_data.salesforce_eats_account acc_st ON acc_st.uuid__c = dm.uuid
+JOIN secure_kirby_external_data.salesforce_eats_account acc_pl ON acc_pl.id = acc_st.parentid
+LEFT JOIN (
+SELECT distinct  event.email_address as campaign_email
+from euclid.crmmarketing_email_sendjob send
+    join euclid.crmmarketing_eventlog event on event.send_id = send.send_id
+    WHERE  send.email_name in (
+     'rcrm_apac_anz_merchants_AdsAdoption_MU_ELC_Ads_Edu_EM2',
+'rcrm_apac_anz_merchants_AdsAdoption_MU_ELC_Ads_Edu_EM5B',
+'rcrm_apac_anz_merchants_AdsAdoption_MU_ELC_Ads_Edu_EM4',
+'rcrm_apac_anz_merchants_AdsAdoption_MU_ELC_Ads_Edu_EM6',
+'rcrm_apac_anz_merchants_AdsAdoption_MU_ELC_Ads_Edu_EM3',
+'rcrm_apac_anz_merchants_AdsAdoption_MU_ELC_Ads_Edu_EM1',
+'rcrm_apac_anz_merchants_AdsAdoption_MU_ELC_Ads_Edu_EM5')
+) as mc ON mc.campaign_email = dm.primary_contact_email
+WHERE 1=1
+AND dm.is_visible = TRUE
+AND dm.status = 'ACTIVE'
+AND dm.is_test_account = FALSE
+AND dm.location_type<>'DELIVERY_API'
+),
+
+multilocation as (
+  SELECT
+    lower(email) as email,
+    count(*) as locations
+  FROM
+    base
+  GROUP BY
+    1
+),
+
+
+conversion AS (
+SELECT 
+ rfs.restaurant_uuid, 
+ ROUND(AVG(n_sessions_any_impression),0) AS AVG_Views,
+ SUM(n_sessions_menu_impression) AS Total_Eaters
+FROM eds.agg_restaurant_funnel rfs
+JOIN base b ON rfs.restaurant_uuid = b.restaurant_uuid
+ WHERE DATE(datestr) >= CURRENT_DATE - INTERVAL '28' DAY 
+         and DATE(datestr) < CURRENT_DATE
+GROUP BY 1),
+
+ads as (
+SELECT 
+ ads.restaurant_uuid,
+ case when SUM(spend_local) > 0 then TRUE ELSE FALSE END AS ads_available,
+ sum(orders) as orders
+FROM ads.ads_metrics_daily_utc ads 
+JOIN base b on b.restaurant_uuid = ads.restaurant_uuid
+WHERE 1 = 1
+ AND DATE(datestr) >= CURRENT_DATE - INTERVAL '28' DAY 
+         and DATE(datestr) < CURRENT_DATE
+GROUP BY 1
+HAVING SUM(spend_local) > 0
+),
+
+
+--orders as (
+--SELECT restaurant_uuid, sum(orders) as orders
+--FROM ads.ads_campaign_metrics_daily_utc
+--
+-- WHERE DATE(datestr) >= CURRENT_DATE - INTERVAL '28' DAY 
+--         and DATE(datestr) < CURRENT_DATE
+--GROUP BY 1
+--),
+
+
+
+
+offers as (
+SELECT DISTINCT rpm.restaurant_uuid, rpm.num_redemptions,
+ CASE WHEN rpm.promotion_type = 'BOGO' THEN 'Buy One Get One'
+      WHEN rpm.promotion_type = 'DISCOUNTEDITEM' THEN 'Discounted Item'
+      WHEN rpm.promotion_type = 'FLAT' THEN 'Flat'
+      WHEN rpm.promotion_type = 'PERCENTAGE' THEN 'Off'
+      WHEN rpm.promotion_type = 'FREEITEM' THEN 'Free Item'
+      WHEN rpm.promotion_type = 'FREEDELIVERY' THEN 'Free Delivery'
+   ELSE rpm.promotion_type
+  END AS promotion_type,
+ DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(rpm.start_at/1000))) AS DATE)) AS start_date,
+ DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(rpm.end_at/1000))) AS DATE)) AS end_date,
+ CASE WHEN CURRENT_DATE > DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(rpm.start_at/1000))) AS DATE)) 
+ AND CURRENT_DATE < DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(rpm.end_at/1000))) AS DATE)) 
+ THEN 'True'
+ ELSE 'False'
+ END AS camp_date,
+ ROW_NUMBER() OVER (PARTITION BY rpm.restaurant_uuid ORDER BY rpm.num_redemptions DESC) AS RowNum
+FROM offers.restaurant_promo_metrics_latest rpm
+JOIN base r on r.restaurant_uuid = rpm.restaurant_uuid
+WHERE (CASE WHEN CURRENT_DATE > DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(rpm.start_at/1000))) AS DATE)) 
+ AND CURRENT_DATE < DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(rpm.end_at/1000))) AS DATE)) 
+ THEN 'True'
+ ELSE 'False'
+ END) = 'True'
+GROUP BY 1, 2, 3, 4, DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(rpm.start_at/1000))) AS DATE)),
+DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(rpm.end_at/1000))) AS DATE))
+),
+
+
+
+
+
+top_search as 
+(
+WITH RankedRestaurants AS (
+SELECT etss.normalized_search_term, dc.city_id, dc.country_id, COUNT(etss.user_uuid) AS t_users
+FROM eds.eater_term_search_Summary etss
+JOIN dwh.dim_city dc ON dc.city_id = etss.delivery_city_id
+AND DATE(datestr) >= CURRENT_DATE - INTERVAL '28' DAY
+AND DATE(datestr) < CURRENT_DATE
+AND TRIM(etss.normalized_search_term) <> ''
+GROUP BY 1,2,3
+),
+
+Merchants AS (
+SELECT rc.store_uuid, LOWER(rc.name) as cat, dc.city_id, dc.country_id
+FROM uber_eats.restaurant_category rc
+JOIN eds.dim_merchant dm ON dm.uuid = rc.store_uuid
+JOIN dwh.dim_city dc ON dc.city_id = dm.city_id
+WHERE 1=1
+),
+
+join_term as(
+SELECT rc.store_uuid, rc.cat, rc.city_id, SUM(t_users) AS t_users,
+ROW_NUMBER() OVER (PARTITION BY rc.store_uuid ORDER BY SUM(t_users) DESC) AS rn
+FROM Merchants rc
+JOIN RankedRestaurants st ON st.normalized_search_term = rc.cat AND rc.city_id = st.city_id
+GROUP BY 1,2,3
+)
+
+SELECT store_uuid, cat, city_id, t_users
+FROM join_term
+WHERE rn = 1
+
+
+),
+
+
+roas as (
+SELECT ds.restaurant_uuid, 
+COALESCE(TRY(sum(ds.revenue_usd*1.0)/sum(ds.spend_usd) ), NULL)  as roas_with_ads_table, 
+COALESCE(TRY(sum(ds.exposed_revenue_usd*1.0)/sum(ds.spend_usd) ), NULL) as exposed_roas_with_ads_table
+FROM ads.ads_metrics_daily_utc ds
+JOIN base b ON ds.restaurant_uuid = b.restaurant_uuid
+GROUP BY 1
+),
+
+
+ads_credits as (
+SELECT msg.ad_account_uuid as ad_account_uuid , gam.restaurant_uuid, msg.currency_code as currency_code
+,MIN(FROM_UNIXTIME(msg.expiration_timestamp)) AS expiration_timestamp
+,MAX_BY(msg.initial_amount,msg.application_timestamp) AS initial_amount
+FROM rawdata_user.kafka_hp_ads_billing_ad_credit_application_nodedup cr
+LEFT JOIN eats_salesops.gainsight_ads_campaign_metrics_historic gam on gam.ad_account_uuid = cr.msg.ad_account_uuid
+WHERE DATE(datestr) >= CURRENT_DATE - INTERVAL '28' DAY
+GROUP BY 1,2,3
+),
+redeem as (
+SELECT msg.ad_account_uuid as ad_account_uuid,
+MAX_BY(msg.redeemed_amount,msg.redemption_timestamp) AS redeemed_amount
+FROM rawdata_user.kafka_hp_ads_billing_ad_credit_redemption_nodedup rd
+WHERE DATE(datestr) >= CURRENT_DATE - INTERVAL '28' DAY
+GROUP BY 1
+),
+merch as (
+select gam.ad_account_uuid as ac_id, gam.restaurant_uuid as restaurant_uuid
+from eats_salesops.gainsight_ads_campaign_metrics_historic gam
+group by 1,2
+),
+redeem_final as(
+select r.ad_account_uuid, m.restaurant_uuid, r.redeemed_amount
+from redeem r
+join merch m on ac_id = r.ad_account_uuid
+),
+join_ads as (
+select cr.ad_account_uuid, cr.restaurant_uuid, cr.expiration_timestamp, cr.initial_amount, rm.redeemed_amount,
+CASE
+    WHEN cr.initial_amount > 0 AND cr.expiration_timestamp < CURRENT_DATE THEN 0  -- Credit has expired
+    WHEN cr.initial_amount > 0 AND cr.initial_amount - COALESCE(rm.redeemed_amount, 0) = 0 THEN 0  -- All credits redeemed
+    ELSE cr.initial_amount - COALESCE(rm.redeemed_amount, 0)  -- Remaining credits
+    END AS credit_granted
+from ads_credits cr
+join redeem_final rm on rm.ad_account_uuid = cr.ad_account_uuid and rm.restaurant_uuid = cr.restaurant_uuid
+),
+ads_credit_final as (
+select restaurant_uuid,expiration_timestamp,initial_amount,redeemed_amount,credit_granted
+from join_ads
+),
+ads_final_table as (
+select b.*, acf.expiration_timestamp, acf.initial_amount, acf.redeemed_amount, acf.credit_granted
+from base b
+left join ads_credit_final acf on acf.restaurant_uuid=b.restaurant_uuid
+)
+
+
+
+SELECT 
+distinct 
+
+b.restaurant_uuid as resto_uuid_ads_campaign
+--, b.email as email_ads_campaign
+,coalesce(cast(b.mtype as varchar),'') as mtype_ads_campaign 
+--, b.store_name as store_name_ads_campaign 
+,coalesce(cast(cn.Total_Eaters as double),0) as eater_visits_st_count_L4W
+,coalesce(cast(cn.AVG_Views as double),0)  as avg_views_count_L4W
+,coalesce(cast(CASE WHEN ad.ads_available IS NULL THEN FALSE ELSE ad.ads_available END AS VARCHAR),'') as ads_available_L4W
+,coalesce(cast(off.promotion_type as varchar),'') AS promotion_type_L4W
+,coalesce(cast(ad.orders  as double),0)  AS orders_with_ads_L4W
+,coalesce(cast(ro.roas_with_ads_table  as double),0)  AS roas_with_ads_table_L4W
+,coalesce(cast(ro.exposed_roas_with_ads_table  as double),0)  AS exposed_roas_with_ads_table_L4W
+,coalesce(cast(CASE
+    WHEN ml.locations > 1
+    then TRUE
+    ELSE FALSE
+  END as varchar),'') AS multilocation_flag
+,b.days_after_ft
+,coalesce(cast(ts.cat as varchar),'') as normalized_search_term_L4W
+,coalesce(cast(ts.t_users  as double),0)  as total_eaters_searchs_L4W
+,CASE
+    WHEN aft.credit_granted >0 THEN 'true'
+    ELSE 'false'
+    END AS ads_credits
+
+FROM base b
+LEFT JOIN conversion cn ON cn.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN ads ad ON ad.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN offers off ON off.restaurant_uuid = b.restaurant_uuid and  off.RowNum = 1
+--LEFT JOIN orders ord ON ord.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN roas ro ON ro.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN multilocation ml  on ml.email = b.email
+LEFT JOIN top_search ts ON ts.city_id =  b.city_id and ts.store_uuid = b.restaurant_uuid
+LEFT JOIN ads_final_table aft ON aft.restaurant_uuid = b.restaurant_uuid 
