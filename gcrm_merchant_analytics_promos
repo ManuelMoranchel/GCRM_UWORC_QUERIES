@@ -1,0 +1,475 @@
+with base as (
+select dm.uuid as restaurant_uuid 
+from eds.dim_merchant dm 
+JOIN dwh.dim_city dc on dm.city_id = dc.city_id
+WHERE 1=1
+    AND dm.is_visible = TRUE
+    AND dm.status = 'ACTIVE'
+    AND dm.is_test_account = FALSE
+    AND dm.location_type<>'DELIVERY_API'
+    )
+
+, promo_hist AS (
+SELECT 
+b.restaurant_uuid, COUNT( promotion_uuid) AS has_hist_promo
+
+FROM offers.restaurant_promo_metrics_latest  as rp
+JOIN base b ON b.restaurant_uuid = rp.restaurant_uuid
+WHERE
+ DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(start_at/1000))) AS DATE)) < CURRENT_DATE 
+GROUP BY 1
+)
+
+
+
+, promo_L7D AS (
+
+
+SELECT 
+b.restaurant_uuid 
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used END ) AS AVG_BOGO_total_budget_used_L7D
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.num_redemptions END ) AS AVG_BOGO_num_redemptions_L7D
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used_from_uber END ) AS AVG_BOGO_total_budget_used_from_uber_L7D
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.total_sales_usd END ) AS AVG_BOGO_total_sales_usd_L7D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used END ) AS SUM_BOGO_total_budget_used_L7D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.num_redemptions END ) AS SUM_BOGO_num_redemptions_L7D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used_from_uber END ) AS SUM_BOGO_total_budget_used_from_uber_L7D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.total_sales_usd END ) AS SUM_BOGO_total_sales_usd_L7D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used END ) AS AVG_DISCOUNTDELIVERY_total_budget_used_L7D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.num_redemptions END ) AS AVG_DISCOUNTDELIVERY_num_redemptions_L7D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used_from_uber END ) AS AVG_DISCOUNTDELIVERY_total_budget_used_from_uber_L7D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_sales_usd END ) AS AVG_DISCOUNTDELIVERY_total_sales_usd_L7D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used END ) AS SUM_DISCOUNTDELIVERY_total_budget_used_L7D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.num_redemptions END ) AS SUM_DISCOUNTDELIVERY_num_redemptions_L7D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used_from_uber END ) AS SUM_DISCOUNTDELIVERY_total_budget_used_from_uber_L7D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_sales_usd END ) AS SUM_DISCOUNTDELIVERY_total_sales_usd_L7D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used END ) AS AVG_DISCOUNTEDITEM_total_budget_used_L7D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.num_redemptions END ) AS AVG_DISCOUNTEDITEM_num_redemptions_L7D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used_from_uber END ) AS AVG_DISCOUNTEDITEM_total_budget_used_from_uber_L7D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_sales_usd END ) AS AVG_DISCOUNTEDITEM_total_sales_usd_L7D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used END ) AS SUM_DISCOUNTEDITEM_total_budget_used_L7D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.num_redemptions END ) AS SUM_DISCOUNTEDITEM_num_redemptions_L7D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used_from_uber END ) AS SUM_DISCOUNTEDITEM_total_budget_used_from_uber_L7D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_sales_usd END ) AS SUM_DISCOUNTEDITEM_total_sales_usd_L7D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used END ) AS AVG_FLAT_total_budget_used_L7D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.num_redemptions END ) AS AVG_FLAT_num_redemptions_L7D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used_from_uber END ) AS AVG_FLAT_total_budget_used_from_uber_L7D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.total_sales_usd END ) AS AVG_FLAT_total_sales_usd_L7D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used END ) AS SUM_FLAT_total_budget_used_L7D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.num_redemptions END ) AS SUM_FLAT_num_redemptions_L7D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used_from_uber END ) AS SUM_FLAT_total_budget_used_from_uber_L7D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.total_sales_usd END ) AS SUM_FLAT_total_sales_usd_L7D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used END ) AS AVG_FREEDELIVERY_total_budget_used_L7D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.num_redemptions END ) AS AVG_FREEDELIVERY_num_redemptions_L7D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used_from_uber END ) AS AVG_FREEDELIVERY_total_budget_used_from_uber_L7D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_sales_usd END ) AS AVG_FREEDELIVERY_total_sales_usd_L7D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used END ) AS SUM_FREEDELIVERY_total_budget_used_L7D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.num_redemptions END ) AS SUM_FREEDELIVERY_num_redemptions_L7D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used_from_uber END ) AS SUM_FREEDELIVERY_total_budget_used_from_uber_L7D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_sales_usd END ) AS SUM_FREEDELIVERY_total_sales_usd_L7D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used END ) AS AVG_FREEITEM_total_budget_used_L7D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.num_redemptions END ) AS AVG_FREEITEM_num_redemptions_L7D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used_from_uber END ) AS AVG_FREEITEM_total_budget_used_from_uber_L7D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_sales_usd END ) AS AVG_FREEITEM_total_sales_usd_L7D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used END ) AS SUM_FREEITEM_total_budget_used_L7D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.num_redemptions END ) AS SUM_FREEITEM_num_redemptions_L7D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used_from_uber END ) AS SUM_FREEITEM_total_budget_used_from_uber_L7D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_sales_usd END ) AS SUM_FREEITEM_total_sales_usd_L7D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used END ) AS AVG_PERCENTAGE_total_budget_used_L7D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.num_redemptions END ) AS AVG_PERCENTAGE_num_redemptions_L7D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used_from_uber END ) AS AVG_PERCENTAGE_total_budget_used_from_uber_L7D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_sales_usd END ) AS AVG_PERCENTAGE_total_sales_usd_L7D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used END ) AS SUM_PERCENTAGE_total_budget_used_L7D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.num_redemptions END ) AS SUM_PERCENTAGE_num_redemptions_L7D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used_from_uber END ) AS SUM_PERCENTAGE_total_budget_used_from_uber_L7D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_sales_usd END ) AS SUM_PERCENTAGE_total_sales_usd_L7D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'BOGO' THEN promotion_uuid END)) AS HAS_BOGO_PROMO_L7D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN promotion_uuid END)) AS HAS_DISCOUNTDELIVERY_PROMO_L7D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN promotion_uuid END)) AS HAS_DISCOUNTEDITEM_PROMO_L7D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'FLAT' THEN promotion_uuid END)) AS HAS_FLAT_PROMO_L7D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'FREEDELIVERY' THEN promotion_uuid END)) AS HAS_FREEDELIVERY_PROMO_L7D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'FREEITEM' THEN promotion_uuid END)) AS HAS_FREEITEM_PROMO_L7D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'PERCENTAGE' THEN promotion_uuid END)) AS HAS_PERCENTAGE_PROMO_L7D
+,COUNT(DISTINCT (promotion_uuid)) AS HAS_PROMO_L7D
+
+
+FROM offers.restaurant_promo_metrics_latest  as rp
+JOIN base b ON b.restaurant_uuid = rp.restaurant_uuid
+WHERE
+ DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(start_at/1000))) AS DATE)) < CURRENT_DATE 
+AND  DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(end_at/1000))) AS DATE)) >= CURRENT_DATE - INTERVAL '7' DAY
+GROUP BY 1
+)
+
+
+, promo_L30D AS (
+
+
+SELECT 
+b.restaurant_uuid 
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used END ) AS AVG_BOGO_total_budget_used_L30D
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.num_redemptions END ) AS AVG_BOGO_num_redemptions_L30D
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used_from_uber END ) AS AVG_BOGO_total_budget_used_from_uber_L30D
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.total_sales_usd END ) AS AVG_BOGO_total_sales_usd_L30D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used END ) AS SUM_BOGO_total_budget_used_L30D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.num_redemptions END ) AS SUM_BOGO_num_redemptions_L30D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used_from_uber END ) AS SUM_BOGO_total_budget_used_from_uber_L30D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.total_sales_usd END ) AS SUM_BOGO_total_sales_usd_L30D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used END ) AS AVG_DISCOUNTDELIVERY_total_budget_used_L30D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.num_redemptions END ) AS AVG_DISCOUNTDELIVERY_num_redemptions_L30D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used_from_uber END ) AS AVG_DISCOUNTDELIVERY_total_budget_used_from_uber_L30D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_sales_usd END ) AS AVG_DISCOUNTDELIVERY_total_sales_usd_L30D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used END ) AS SUM_DISCOUNTDELIVERY_total_budget_used_L30D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.num_redemptions END ) AS SUM_DISCOUNTDELIVERY_num_redemptions_L30D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used_from_uber END ) AS SUM_DISCOUNTDELIVERY_total_budget_used_from_uber_L30D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_sales_usd END ) AS SUM_DISCOUNTDELIVERY_total_sales_usd_L30D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used END ) AS AVG_DISCOUNTEDITEM_total_budget_used_L30D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.num_redemptions END ) AS AVG_DISCOUNTEDITEM_num_redemptions_L30D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used_from_uber END ) AS AVG_DISCOUNTEDITEM_total_budget_used_from_uber_L30D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_sales_usd END ) AS AVG_DISCOUNTEDITEM_total_sales_usd_L30D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used END ) AS SUM_DISCOUNTEDITEM_total_budget_used_L30D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.num_redemptions END ) AS SUM_DISCOUNTEDITEM_num_redemptions_L30D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used_from_uber END ) AS SUM_DISCOUNTEDITEM_total_budget_used_from_uber_L30D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_sales_usd END ) AS SUM_DISCOUNTEDITEM_total_sales_usd_L30D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used END ) AS AVG_FLAT_total_budget_used_L30D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.num_redemptions END ) AS AVG_FLAT_num_redemptions_L30D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used_from_uber END ) AS AVG_FLAT_total_budget_used_from_uber_L30D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.total_sales_usd END ) AS AVG_FLAT_total_sales_usd_L30D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used END ) AS SUM_FLAT_total_budget_used_L30D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.num_redemptions END ) AS SUM_FLAT_num_redemptions_L30D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used_from_uber END ) AS SUM_FLAT_total_budget_used_from_uber_L30D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.total_sales_usd END ) AS SUM_FLAT_total_sales_usd_L30D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used END ) AS AVG_FREEDELIVERY_total_budget_used_L30D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.num_redemptions END ) AS AVG_FREEDELIVERY_num_redemptions_L30D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used_from_uber END ) AS AVG_FREEDELIVERY_total_budget_used_from_uber_L30D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_sales_usd END ) AS AVG_FREEDELIVERY_total_sales_usd_L30D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used END ) AS SUM_FREEDELIVERY_total_budget_used_L30D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.num_redemptions END ) AS SUM_FREEDELIVERY_num_redemptions_L30D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used_from_uber END ) AS SUM_FREEDELIVERY_total_budget_used_from_uber_L30D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_sales_usd END ) AS SUM_FREEDELIVERY_total_sales_usd_L30D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used END ) AS AVG_FREEITEM_total_budget_used_L30D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.num_redemptions END ) AS AVG_FREEITEM_num_redemptions_L30D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used_from_uber END ) AS AVG_FREEITEM_total_budget_used_from_uber_L30D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_sales_usd END ) AS AVG_FREEITEM_total_sales_usd_L30D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used END ) AS SUM_FREEITEM_total_budget_used_L30D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.num_redemptions END ) AS SUM_FREEITEM_num_redemptions_L30D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used_from_uber END ) AS SUM_FREEITEM_total_budget_used_from_uber_L30D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_sales_usd END ) AS SUM_FREEITEM_total_sales_usd_L30D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used END ) AS AVG_PERCENTAGE_total_budget_used_L30D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.num_redemptions END ) AS AVG_PERCENTAGE_num_redemptions_L30D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used_from_uber END ) AS AVG_PERCENTAGE_total_budget_used_from_uber_L30D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_sales_usd END ) AS AVG_PERCENTAGE_total_sales_usd_L30D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used END ) AS SUM_PERCENTAGE_total_budget_used_L30D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.num_redemptions END ) AS SUM_PERCENTAGE_num_redemptions_L30D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used_from_uber END ) AS SUM_PERCENTAGE_total_budget_used_from_uber_L30D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_sales_usd END ) AS SUM_PERCENTAGE_total_sales_usd_L30D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'BOGO' THEN promotion_uuid END)) AS HAS_BOGO_PROMO_L30D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN promotion_uuid END)) AS HAS_DISCOUNTDELIVERY_PROMO_L30D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN promotion_uuid END)) AS HAS_DISCOUNTEDITEM_PROMO_L30D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'FLAT' THEN promotion_uuid END)) AS HAS_FLAT_PROMO_L30D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'FREEDELIVERY' THEN promotion_uuid END)) AS HAS_FREEDELIVERY_PROMO_L30D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'FREEITEM' THEN promotion_uuid END)) AS HAS_FREEITEM_PROMO_L30D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'PERCENTAGE' THEN promotion_uuid END)) AS HAS_PERCENTAGE_PROMO_L30D
+,COUNT(DISTINCT (promotion_uuid)) AS HAS_PROMO_L30D
+
+
+
+FROM offers.restaurant_promo_metrics_latest  as rp
+JOIN base b ON b.restaurant_uuid = rp.restaurant_uuid
+WHERE
+ DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(start_at/1000))) AS DATE)) < CURRENT_DATE 
+AND  DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(end_at/1000))) AS DATE)) >= CURRENT_DATE - INTERVAL '30' DAY
+GROUP BY 1
+)
+
+
+
+, promo_L90D AS (
+
+
+SELECT 
+b.restaurant_uuid 
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used END ) AS AVG_BOGO_total_budget_used_L90D
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.num_redemptions END ) AS AVG_BOGO_num_redemptions_L90D
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used_from_uber END ) AS AVG_BOGO_total_budget_used_from_uber_L90D
+,AVG(CASE WHEN promotion_type = 'BOGO' THEN rp.total_sales_usd END ) AS AVG_BOGO_total_sales_usd_L90D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used END ) AS SUM_BOGO_total_budget_used_L90D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.num_redemptions END ) AS SUM_BOGO_num_redemptions_L90D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.total_budget_used_from_uber END ) AS SUM_BOGO_total_budget_used_from_uber_L90D
+,SUM(CASE WHEN promotion_type = 'BOGO' THEN rp.total_sales_usd END ) AS SUM_BOGO_total_sales_usd_L90D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used END ) AS AVG_DISCOUNTDELIVERY_total_budget_used_L90D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.num_redemptions END ) AS AVG_DISCOUNTDELIVERY_num_redemptions_L90D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used_from_uber END ) AS AVG_DISCOUNTDELIVERY_total_budget_used_from_uber_L90D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_sales_usd END ) AS AVG_DISCOUNTDELIVERY_total_sales_usd_L90D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used END ) AS SUM_DISCOUNTDELIVERY_total_budget_used_L90D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.num_redemptions END ) AS SUM_DISCOUNTDELIVERY_num_redemptions_L90D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_budget_used_from_uber END ) AS SUM_DISCOUNTDELIVERY_total_budget_used_from_uber_L90D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN rp.total_sales_usd END ) AS SUM_DISCOUNTDELIVERY_total_sales_usd_L90D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used END ) AS AVG_DISCOUNTEDITEM_total_budget_used_L90D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.num_redemptions END ) AS AVG_DISCOUNTEDITEM_num_redemptions_L90D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used_from_uber END ) AS AVG_DISCOUNTEDITEM_total_budget_used_from_uber_L90D
+,AVG(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_sales_usd END ) AS AVG_DISCOUNTEDITEM_total_sales_usd_L90D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used END ) AS SUM_DISCOUNTEDITEM_total_budget_used_L90D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.num_redemptions END ) AS SUM_DISCOUNTEDITEM_num_redemptions_L90D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_budget_used_from_uber END ) AS SUM_DISCOUNTEDITEM_total_budget_used_from_uber_L90D
+,SUM(CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN rp.total_sales_usd END ) AS SUM_DISCOUNTEDITEM_total_sales_usd_L90D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used END ) AS AVG_FLAT_total_budget_used_L90D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.num_redemptions END ) AS AVG_FLAT_num_redemptions_L90D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used_from_uber END ) AS AVG_FLAT_total_budget_used_from_uber_L90D
+,AVG(CASE WHEN promotion_type = 'FLAT' THEN rp.total_sales_usd END ) AS AVG_FLAT_total_sales_usd_L90D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used END ) AS SUM_FLAT_total_budget_used_L90D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.num_redemptions END ) AS SUM_FLAT_num_redemptions_L90D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.total_budget_used_from_uber END ) AS SUM_FLAT_total_budget_used_from_uber_L90D
+,SUM(CASE WHEN promotion_type = 'FLAT' THEN rp.total_sales_usd END ) AS SUM_FLAT_total_sales_usd_L90D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used END ) AS AVG_FREEDELIVERY_total_budget_used_L90D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.num_redemptions END ) AS AVG_FREEDELIVERY_num_redemptions_L90D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used_from_uber END ) AS AVG_FREEDELIVERY_total_budget_used_from_uber_L90D
+,AVG(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_sales_usd END ) AS AVG_FREEDELIVERY_total_sales_usd_L90D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used END ) AS SUM_FREEDELIVERY_total_budget_used_L90D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.num_redemptions END ) AS SUM_FREEDELIVERY_num_redemptions_L90D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_budget_used_from_uber END ) AS SUM_FREEDELIVERY_total_budget_used_from_uber_L90D
+,SUM(CASE WHEN promotion_type = 'FREEDELIVERY' THEN rp.total_sales_usd END ) AS SUM_FREEDELIVERY_total_sales_usd_L90D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used END ) AS AVG_FREEITEM_total_budget_used_L90D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.num_redemptions END ) AS AVG_FREEITEM_num_redemptions_L90D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used_from_uber END ) AS AVG_FREEITEM_total_budget_used_from_uber_L90D
+,AVG(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_sales_usd END ) AS AVG_FREEITEM_total_sales_usd_L90D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used END ) AS SUM_FREEITEM_total_budget_used_L90D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.num_redemptions END ) AS SUM_FREEITEM_num_redemptions_L90D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_budget_used_from_uber END ) AS SUM_FREEITEM_total_budget_used_from_uber_L90D
+,SUM(CASE WHEN promotion_type = 'FREEITEM' THEN rp.total_sales_usd END ) AS SUM_FREEITEM_total_sales_usd_L90D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used END ) AS AVG_PERCENTAGE_total_budget_used_L90D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.num_redemptions END ) AS AVG_PERCENTAGE_num_redemptions_L90D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used_from_uber END ) AS AVG_PERCENTAGE_total_budget_used_from_uber_L90D
+,AVG(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_sales_usd END ) AS AVG_PERCENTAGE_total_sales_usd_L90D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used END ) AS SUM_PERCENTAGE_total_budget_used_L90D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.num_redemptions END ) AS SUM_PERCENTAGE_num_redemptions_L90D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_budget_used_from_uber END ) AS SUM_PERCENTAGE_total_budget_used_from_uber_L90D
+,SUM(CASE WHEN promotion_type = 'PERCENTAGE' THEN rp.total_sales_usd END ) AS SUM_PERCENTAGE_total_sales_usd_L90D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'BOGO' THEN promotion_uuid END)) AS HAS_BOGO_PROMO_L90D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'DISCOUNTDELIVERY' THEN promotion_uuid END)) AS HAS_DISCOUNTDELIVERY_PROMO_L90D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'DISCOUNTEDITEM' THEN promotion_uuid END)) AS HAS_DISCOUNTEDITEM_PROMO_L90D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'FLAT' THEN promotion_uuid END)) AS HAS_FLAT_PROMO_L90D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'FREEDELIVERY' THEN promotion_uuid END)) AS HAS_FREEDELIVERY_PROMO_L90D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'FREEITEM' THEN promotion_uuid END)) AS HAS_FREEITEM_PROMO_L90D
+,COUNT(DISTINCT (CASE WHEN promotion_type = 'PERCENTAGE' THEN promotion_uuid END)) AS HAS_PERCENTAGE_PROMO_L90D
+,COUNT(DISTINCT (promotion_uuid)) AS HAS_PROMO_L90D
+
+
+FROM offers.restaurant_promo_metrics_latest  as rp
+JOIN base b ON b.restaurant_uuid = rp.restaurant_uuid
+WHERE
+ DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(start_at/1000))) AS DATE)) < CURRENT_DATE 
+AND  DATE_TRUNC('day', CAST(DATE((FROM_UNIXTIME(end_at/1000))) AS DATE)) >= CURRENT_DATE - INTERVAL '90' DAY
+GROUP BY 1
+)
+
+
+
+SELECT 
+b.restaurant_uuid as restaurant_uuid_4
+
+,CAST(CASE WHEN ph.has_hist_promo>= 1 THEN TRUE ELSE FALSE END AS VARCHAR) AS has_hist_promo
+,CAST(ROUND(COALESCE(TRY(CAST(ph.has_hist_promo AS  double)),0),1) AS VARCHAR) AS Total_hist_promos
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_BOGO_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_BOGO_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_BOGO_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_BOGO_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_BOGO_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_BOGO_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_BOGO_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_BOGO_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_DISCOUNTDELIVERY_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_DISCOUNTDELIVERY_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_DISCOUNTDELIVERY_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_DISCOUNTDELIVERY_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_DISCOUNTDELIVERY_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_DISCOUNTDELIVERY_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_DISCOUNTDELIVERY_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_DISCOUNTDELIVERY_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_DISCOUNTEDITEM_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_DISCOUNTEDITEM_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_DISCOUNTEDITEM_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_DISCOUNTEDITEM_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_DISCOUNTEDITEM_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_DISCOUNTEDITEM_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_DISCOUNTEDITEM_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_DISCOUNTEDITEM_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FLAT_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FLAT_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FLAT_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FLAT_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FLAT_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FLAT_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FLAT_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FLAT_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FREEDELIVERY_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FREEDELIVERY_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FREEDELIVERY_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FREEDELIVERY_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FREEDELIVERY_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FREEDELIVERY_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FREEDELIVERY_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FREEDELIVERY_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FREEITEM_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FREEITEM_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FREEITEM_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_FREEITEM_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FREEITEM_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FREEITEM_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FREEITEM_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_FREEITEM_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_PERCENTAGE_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_PERCENTAGE_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_PERCENTAGE_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.AVG_PERCENTAGE_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_PERCENTAGE_total_budget_used_L7D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_total_budget_used_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_PERCENTAGE_num_redemptions_L7D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_num_redemptions_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_PERCENTAGE_total_budget_used_from_uber_L7D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_total_budget_used_from_uber_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.SUM_PERCENTAGE_total_sales_usd_L7D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_total_sales_usd_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.HAS_BOGO_PROMO_L7D AS  double)),0),1) AS VARCHAR) AS HAS_BOGO_PROMO_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.HAS_DISCOUNTDELIVERY_PROMO_L7D AS  double)),0),1) AS VARCHAR) AS HAS_DISCOUNTDELIVERY_PROMO_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.HAS_DISCOUNTEDITEM_PROMO_L7D AS  double)),0),1) AS VARCHAR) AS HAS_DISCOUNTEDITEM_PROMO_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.HAS_FLAT_PROMO_L7D AS  double)),0),1) AS VARCHAR) AS HAS_FLAT_PROMO_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.HAS_FREEDELIVERY_PROMO_L7D AS  double)),0),1) AS VARCHAR) AS HAS_FREEDELIVERY_PROMO_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.HAS_FREEITEM_PROMO_L7D AS  double)),0),1) AS VARCHAR) AS HAS_FREEITEM_PROMO_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.HAS_PERCENTAGE_PROMO_L7D AS  double)),0),1) AS VARCHAR) AS HAS_PERCENTAGE_PROMO_L7D
+,CAST(ROUND(COALESCE(TRY(CAST(of1.HAS_PROMO_L7D AS  double)),0),1) AS VARCHAR) AS HAS_PROMO_L7D
+
+
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_BOGO_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_BOGO_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_BOGO_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_BOGO_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_BOGO_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_BOGO_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_BOGO_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_BOGO_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_DISCOUNTDELIVERY_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_DISCOUNTDELIVERY_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_DISCOUNTDELIVERY_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_DISCOUNTDELIVERY_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_DISCOUNTDELIVERY_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_DISCOUNTDELIVERY_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_DISCOUNTDELIVERY_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_DISCOUNTDELIVERY_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_DISCOUNTEDITEM_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_DISCOUNTEDITEM_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_DISCOUNTEDITEM_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_DISCOUNTEDITEM_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_DISCOUNTEDITEM_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_DISCOUNTEDITEM_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_DISCOUNTEDITEM_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_DISCOUNTEDITEM_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FLAT_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FLAT_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FLAT_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FLAT_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FLAT_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FLAT_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FLAT_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FLAT_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FREEDELIVERY_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FREEDELIVERY_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FREEDELIVERY_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FREEDELIVERY_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FREEDELIVERY_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FREEDELIVERY_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FREEDELIVERY_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FREEDELIVERY_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FREEITEM_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FREEITEM_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FREEITEM_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_FREEITEM_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FREEITEM_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FREEITEM_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FREEITEM_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_FREEITEM_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_PERCENTAGE_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_PERCENTAGE_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_PERCENTAGE_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.AVG_PERCENTAGE_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_PERCENTAGE_total_budget_used_L30D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_total_budget_used_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_PERCENTAGE_num_redemptions_L30D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_num_redemptions_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_PERCENTAGE_total_budget_used_from_uber_L30D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_total_budget_used_from_uber_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.SUM_PERCENTAGE_total_sales_usd_L30D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_total_sales_usd_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.HAS_BOGO_PROMO_L30D AS  double)),0),1) AS VARCHAR) AS HAS_BOGO_PROMO_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.HAS_DISCOUNTDELIVERY_PROMO_L30D AS  double)),0),1) AS VARCHAR) AS HAS_DISCOUNTDELIVERY_PROMO_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.HAS_DISCOUNTEDITEM_PROMO_L30D AS  double)),0),1) AS VARCHAR) AS HAS_DISCOUNTEDITEM_PROMO_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.HAS_FLAT_PROMO_L30D AS  double)),0),1) AS VARCHAR) AS HAS_FLAT_PROMO_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.HAS_FREEDELIVERY_PROMO_L30D AS  double)),0),1) AS VARCHAR) AS HAS_FREEDELIVERY_PROMO_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.HAS_FREEITEM_PROMO_L30D AS  double)),0),1) AS VARCHAR) AS HAS_FREEITEM_PROMO_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.HAS_PERCENTAGE_PROMO_L30D AS  double)),0),1) AS VARCHAR) AS HAS_PERCENTAGE_PROMO_L30D
+,CAST(ROUND(COALESCE(TRY(CAST(of2.HAS_PROMO_L30D AS  double)),0),1) AS VARCHAR) AS HAS_PROMO_L30D
+
+
+
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_BOGO_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_BOGO_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_BOGO_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_BOGO_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS AVG_BOGO_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_BOGO_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_BOGO_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_BOGO_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_BOGO_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS SUM_BOGO_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_DISCOUNTDELIVERY_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_DISCOUNTDELIVERY_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_DISCOUNTDELIVERY_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_DISCOUNTDELIVERY_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTDELIVERY_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_DISCOUNTDELIVERY_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_DISCOUNTDELIVERY_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_DISCOUNTDELIVERY_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_DISCOUNTDELIVERY_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTDELIVERY_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_DISCOUNTEDITEM_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_DISCOUNTEDITEM_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_DISCOUNTEDITEM_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_DISCOUNTEDITEM_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS AVG_DISCOUNTEDITEM_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_DISCOUNTEDITEM_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_DISCOUNTEDITEM_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_DISCOUNTEDITEM_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_DISCOUNTEDITEM_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS SUM_DISCOUNTEDITEM_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FLAT_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FLAT_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FLAT_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FLAT_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FLAT_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FLAT_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FLAT_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FLAT_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FLAT_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FLAT_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FREEDELIVERY_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FREEDELIVERY_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FREEDELIVERY_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FREEDELIVERY_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FREEDELIVERY_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FREEDELIVERY_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FREEDELIVERY_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FREEDELIVERY_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FREEDELIVERY_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FREEDELIVERY_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FREEITEM_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FREEITEM_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FREEITEM_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_FREEITEM_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS AVG_FREEITEM_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FREEITEM_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FREEITEM_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FREEITEM_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_FREEITEM_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS SUM_FREEITEM_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_PERCENTAGE_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_PERCENTAGE_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_PERCENTAGE_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.AVG_PERCENTAGE_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS AVG_PERCENTAGE_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_PERCENTAGE_total_budget_used_L90D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_total_budget_used_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_PERCENTAGE_num_redemptions_L90D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_num_redemptions_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_PERCENTAGE_total_budget_used_from_uber_L90D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_total_budget_used_from_uber_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.SUM_PERCENTAGE_total_sales_usd_L90D AS  double)),0),1) AS VARCHAR) AS SUM_PERCENTAGE_total_sales_usd_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.HAS_BOGO_PROMO_L90D AS  double)),0),1) AS VARCHAR) AS HAS_BOGO_PROMO_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.HAS_DISCOUNTDELIVERY_PROMO_L90D AS  double)),0),1) AS VARCHAR) AS HAS_DISCOUNTDELIVERY_PROMO_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.HAS_DISCOUNTEDITEM_PROMO_L90D AS  double)),0),1) AS VARCHAR) AS HAS_DISCOUNTEDITEM_PROMO_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.HAS_FLAT_PROMO_L90D AS  double)),0),1) AS VARCHAR) AS HAS_FLAT_PROMO_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.HAS_FREEDELIVERY_PROMO_L90D AS  double)),0),1) AS VARCHAR) AS HAS_FREEDELIVERY_PROMO_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.HAS_FREEITEM_PROMO_L90D AS  double)),0),1) AS VARCHAR) AS HAS_FREEITEM_PROMO_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.HAS_PERCENTAGE_PROMO_L90D AS  double)),0),1) AS VARCHAR) AS HAS_PERCENTAGE_PROMO_L90D
+,CAST(ROUND(COALESCE(TRY(CAST(of3.HAS_PROMO_L90D AS  double)),0),1) AS VARCHAR) AS HAS_PROMO_L90D
+
+FROM base b 
+LEFT JOIN promo_L7D of1 ON of1.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN promo_L30D of2 ON of2.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN promo_L90D of3 ON of3.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN promo_hist ph ON ph.restaurant_uuid = b.restaurant_uuid
