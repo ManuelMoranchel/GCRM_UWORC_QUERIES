@@ -1,0 +1,154 @@
+
+
+
+with audience as (
+SELECT
+  DISTINCT concat(
+    uuid,
+    '&',
+    split_part(primary_contact_email_dm, '@', 1),
+    '@',
+    'primary_contact_dm'
+  ) as Primary_Key,
+  uuid,
+  country_id,
+  city_id,
+  lower(primary_contact_email_dm) as email_gos,
+  'Storefront' as Hierarchy_level,
+  Store_name,
+  currency_code,
+  uber_merchant_type,
+  cast(ror_LM as INT) as ror_LM,
+  Actual_monthly_sales,
+  Missed_monthly_sales_ror
+from (
+SELECT 
+coalesce(cast(dm.uuid as VARCHAR),'') as uuid,
+coalesce(cast(primary_contact_email_dm as VARCHAR),'') as primary_contact_email_dm,
+dm.country_id,
+dm.city_id,
+coalesce(cast(dm.store_name as VARCHAR),'') as store_name,
+coalesce(cast(dm.currency_code as VARCHAR),'') AS currency_code,
+coalesce(cast(dm.uber_merchant_type  as VARCHAR),'') as uber_merchant_type ,
+coalesce(cast(TRY(cast(ror.ror_LM as int)) as VARCHAR),'') as ror_LM,
+CASE WHEN  coalesce(cast(TRY(CAST(ROUND(TRY(ror.Actual_Monthly_Sales),2) AS varchar))  as varchar),'')  IN ('Infinity', 'NaN')  THEN '0.00' 
+WHEN coalesce(cast(TRY(CAST(ROUND(TRY(ror.Actual_Monthly_Sales),2) AS varchar))  as varchar),'')  LIKE '%E%' THEN  '0.00' 
+ELSE coalesce(cast(TRY(CAST(ROUND(TRY(ror.Actual_Monthly_Sales),2) AS varchar))  as varchar),'')  end  as Actual_Monthly_Sales,
+CASE WHEN  coalesce(cast(TRY(CAST(ROUND(TRY(ror.Missed_Monthly_Sales_ror),2) AS varchar))  as varchar),'')  IN ('Infinity', 'NaN')  THEN '0.00' 
+WHEN coalesce(cast(TRY(CAST(ROUND(TRY(ror.Missed_Monthly_Sales_ror),2) AS varchar))  as varchar),'')  LIKE '%E%' THEN  '0.00' 
+ELSE coalesce(cast(TRY(CAST(ROUND(TRY(ror.Missed_Monthly_Sales_ror),2) AS varchar))  as varchar),'')  end  as Missed_Monthly_Sales_ror,
+coalesce(cast(segment as VARCHAR),'') as segment,
+coalesce(cast(first_trip_date as VARCHAR),'') as first_trip_date,
+coalesce(cast(dm.fulfillment_types as VARCHAR),'') as fulfillment_types,
+coalesce(cast(dm.is_test_account as VARCHAR),'') as is_test_account,
+coalesce(cast(dm.location_type as VARCHAR),'') as location_type,
+coalesce(cast(dm.pos_integration_type as VARCHAR),'') as pos_integration_type
+
+FROM gcrm_data.gcrm_dim_merchant dm 
+LEFT JOIN gcrm_data.gcrm_merchant_analytics_ror ror   ON ror.restaurant_uuid_1 = dm.uuid 
+
+)
+
+where
+  cast(ror_LM as INT) < 85
+  AND cast(ror_LM as INT) >= 20
+  and primary_contact_email_dm is not null
+  and country_id in (1, 32)
+  and segment = 'SMB'
+  and ror_LM is not null
+  AND date_diff('day', TRY(DATE(first_trip_date)), CURRENT_DATE) >= 28
+  AND uber_merchant_type in ('MERCHANT_TYPE_RESTAURANT', 'MERCHANT_TYPE_RETAIL', 'MERCHANT_TYPE_GROCERY')
+  AND fulfillment_types not like '%DELIVERY_OVER_THE_TOP%' -- Remove OTT. --check
+  AND is_test_account = 'false' -- exclude test accounts
+  and location_type != 'DELIVERY_API' -- exclude direct 
+  and coalesce(pos_integration_type,'')<>'PPP_COURIER' --  exclude PPP merchants
+  ) 
+  
+  ,multilocation as (
+  SELECT
+    email_gos as email_gos,
+    count(*) as locations
+  FROM
+    audience
+  GROUP BY
+    1
+)
+
+
+,audience_max_3_st as (
+
+select distinct 
+    email_gos
+    ,is_multilocation_gos
+    ,hierarchy_level
+    ,max(case when num=1 then primary_key end) as primary_key
+    ,max(case when num=1 then country_id end) as country_id
+    ,max(case when num=1 then city_id end) as city_id
+    ,max(case when num=1 then uuid end) as store_uuid_r1
+    ,max(case when num=1 then store_name end) as store_name_r1
+    ,max(case when num=1 then uber_merchant_type end) as uber_merchant_type_r1
+    ,max(case when num=1 then currency_code end) as currency_code
+    ,max(case when num=1 then ror_lm end) as ror_lm_r1
+    ,max(case when num=1 then actual_monthly_sales end) as actual_monthly_sales_r1
+    ,max(case when num=1 then missed_monthly_sales_ror end) as missed_monthly_sales_ror_r1
+    ,max(case when num=2 then store_name end) as store_name_r2
+    ,max(case when num=2 then uber_merchant_type end) as uber_merchant_type_r2
+    ,max(case when num=2 then ror_lm end) as ror_lm_r2
+    ,max(case when num=2 then actual_monthly_sales end) as actual_monthly_sales_r2
+    ,max(case when num=2 then missed_monthly_sales_ror end) as missed_monthly_sales_ror_r2
+    ,max(case when num=3 then store_name end) as store_name_r3
+    ,max(case when num=3 then uber_merchant_type end) as uber_merchant_type_r3
+    ,max(case when num=3 then ror_lm end) as ror_lm_r3
+    ,max(case when num=3 then actual_monthly_sales end) as actual_monthly_sales_r3
+    ,max(case when num=3 then missed_monthly_sales_ror end) as missed_monthly_sales_ror_r3
+
+from (
+
+select a.* , case when locations > 1 then true else false end as is_multilocation_gos
+,row_number()over(partition by a.email_gos order by ror_LM) as num
+from audience a 
+left join multilocation m on m.email_gos = a.email_gos
+
+) GROUP BY 1,2,3
+)
+
+
+,XP AS (
+
+select 
+B.*
+,'go_online_sweep_campaign' as experiment_key_gos
+,case when bucket_id_gos BETWEEN 0 and 49 then 'Control' else 'Variant1' end as treatment_group_key_gos
+
+
+FROM (
+SELECT am.*, TO_MD5_MOD(CONCAT('go_online_sweep_campaign',am.email_gos), 100) as bucket_id_gos
+
+FROM audience_max_3_st am
+where is_multilocation_gos = false 
+) AS  B
+
+
+
+)
+
+, final_audience as (
+
+SELECT XP.* 
+FROM XP 
+
+
+
+UNION ALL
+
+SELECT am.*, 0 as bucket_id_gos , '' as experiment_key_gos, '' as treatment_group_key_gos
+
+FROM audience_max_3_st AM
+where is_multilocation_gos = true
+)
+
+select *, case when store_name_r2 is null and store_name_r3 is null then '1'
+when store_name_r2 is not null and store_name_r3 is null then '2' 
+when store_name_r2 is not null and store_name_r3 is not null then '3' else '' end as number_locations_gos
+from final_audience
+
