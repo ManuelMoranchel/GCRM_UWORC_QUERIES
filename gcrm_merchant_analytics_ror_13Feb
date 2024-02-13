@@ -1,0 +1,260 @@
+with base as (
+select dm.uuid as restaurant_uuid,
+ coalesce(dc.mega_region,'') as mega_region,
+    coalesce(dc.region,'') as region
+from eds.dim_merchant dm 
+JOIN dwh.dim_city dc on dm.city_id = dc.city_id
+WHERE 1=1
+    AND dm.is_visible = TRUE
+    AND dm.status = 'ACTIVE'
+    AND dm.is_test_account = FALSE
+    AND dm.location_type<>'DELIVERY_API'
+    ),
+
+ror as (
+SELECT 
+                    DATE(datestr) as datestr,
+                    restaurant_uuid,
+                    cast(SUM(available_to_eaters_minutes) as double) as available_to_eaters_minutes,
+                    cast(SUM(menu_available_minutes) as double) as menu_available_minutes
+                    
+                FROM  eds.agg_hourly_restaurant_supply 
+                WHERE DATE(datestr) >= CURRENT_DATE - INTERVAL '90' DAY 
+                group by 1,2
+
+
+), 
+    
+
+ror_L7D as (    
+        select restaurant_uuid,
+                case when SUM(menu_available_minutes)=0 then 0
+                    else Round((SUM(available_to_eaters_minutes)/SUM(menu_available_minutes))*100.0) end as ror_L7D
+        from ror
+         WHERE datestr >= CURRENT_DATE - INTERVAL '7' DAY 
+         and datestr < CURRENT_DATE
+         group by 1 
+        
+        ),
+
+ror_L30D as (    
+        select restaurant_uuid,
+                case when SUM(menu_available_minutes)=0 then 0
+                    else Round((SUM(available_to_eaters_minutes)/SUM(menu_available_minutes))*100.0) end as ror_L30D
+        from ror
+         WHERE datestr >= CURRENT_DATE - INTERVAL '30' DAY 
+         and datestr < CURRENT_DATE
+         group by 1 
+        
+        ),
+        
+ror_L90D as (    
+        select restaurant_uuid,
+                case when SUM(menu_available_minutes)=0 then 0
+                    else Round((SUM(available_to_eaters_minutes)/SUM(menu_available_minutes))*100.0) end as ror_L90D
+        from ror
+         WHERE datestr >= CURRENT_DATE - INTERVAL '90' DAY 
+         and datestr < CURRENT_DATE
+         group by 1 
+        
+        ),
+        
+    ror_LM as (----------------------------------------NEW    
+        select 
+        date_format(datestr, '%M') month_name,
+        restaurant_uuid,
+                case when SUM(menu_available_minutes)=0 then 0
+                    else Round((SUM(available_to_eaters_minutes)/SUM(menu_available_minutes))*100.0) end as ror_LM
+        from ror
+         WHERE datestr >= date(DATE_FORMAT( CURRENT_DATE - INTERVAL '1' MONTH, '%Y-%m-01' ) )
+         and datestr <  date(DATE_FORMAT( CURRENT_DATE, '%Y-%m-01' ))
+
+         
+         group by 1,2
+         ),
+        
+        
+metrics as (
+
+SELECT 
+
+DATE(fef.datestr) AS datestr 
+,fef.restaurant_uuid
+,fef.meal_subtotal
+,fef.client_uuid
+,fet.workflow_uuid
+,fet.is_completed
+,fet.order_status
+,fet.restaurant_accept_timestamp_local
+,fet.eater_request_timestamp_local
+,fet.courier_begintrip_timestamp_local
+,fet.courier_arrival_pickup_timestamp_local
+,fet.is_scheduled_order
+,fef.original_eater_fare
+,fet.courier_dropoff_timestamp_local
+FROM eds.fact_eats_fares_v2 fef  
+JOIN eds.fact_eats_trip fet ON fef.workflow_uuid = fet.workflow_uuid
+JOIN base b ON b.restaurant_uuid = fef.restaurant_uuid
+WHERE date(fef.datestr) >= CURRENT_DATE - INTERVAL '90' DAY 
+AND date(fet.datestr) >= CURRENT_DATE - INTERVAL '90' DAY 
+
+
+
+),
+
+metrics_LM as (----------------------------------------NEW
+        select 
+         restaurant_uuid
+        ,round(cast(SUM(meal_subtotal) as DOUBLE),1) AS food_sales_LM
+         
+         from metrics m 
+
+        WHERE m.datestr >= date(DATE_FORMAT( CURRENT_DATE - INTERVAL '1' MONTH, '%Y-%m-01' ) )
+         and m.datestr <  date(DATE_FORMAT( CURRENT_DATE, '%Y-%m-01' ))
+        group by 1 
+    ),
+
+
+metrics_L7D as (
+        select 
+         restaurant_uuid
+        ,count( distinct client_uuid) as total_customers_L7D
+        ,round(cast(SUM(meal_subtotal) as DOUBLE),1) AS food_sales_L7D
+        ,count(DISTINCT workflow_uuid) AS Requests_L7D
+        , count(DISTINCT CASE WHEN is_completed THEN workflow_uuid END) AS Completed_orders_L7D
+        , count(DISTINCT CASE WHEN order_status = 'unfulfilled' THEN workflow_uuid END) AS Unaccepted_orders_L7D
+        , round(1.00 * count(DISTINCT CASE WHEN restaurant_accept_timestamp_local is not null then workflow_uuid else null end) / count(DISTINCT workflow_uuid), 2) AS Acceptance_rate_L7D
+        , round(avg(CAST(DATEDIFF('second', eater_request_timestamp_local, restaurant_accept_timestamp_local) AS DOUBLE)), 2) AS Acceptance_Time_L7D
+        , round(avg(CAST(DATEDIFF('second', restaurant_accept_timestamp_local, courier_begintrip_timestamp_local) AS DOUBLE) / 60), 2) AS Prep_Time_Minutes_L7D
+        , round(avg(CAST(DATEDIFF('second', courier_arrival_pickup_timestamp_local, courier_begintrip_timestamp_local) AS DOUBLE) / 60), 2) AS Courier_Wait_Time_L7D
+        , round(avg(CASE WHEN is_scheduled_order = FALSE THEN CAST(DATEDIFF('second', eater_request_timestamp_local, courier_dropoff_timestamp_local) AS DOUBLE) / 60 END), 2) AS ATD_L7D --actual delivery_time
+        , ROUND(sum(cast(coalesce(original_eater_fare,0) as double)),2) AS eats_gbv_L7D
+
+        from metrics m 
+
+        where m.datestr >= CURRENT_DATE - INTERVAL '7' DAY 
+        AND m.datestr < CURRENT_DATE 
+        group by 1 
+    ),
+
+        
+metrics_L30D as (
+        select 
+         restaurant_uuid
+        ,count( distinct client_uuid) as total_customers_L30D
+        ,round(cast(SUM(meal_subtotal) as DOUBLE),1)  AS food_sales_L30D
+        ,count(DISTINCT workflow_uuid) AS Requests_L30D
+        , count(DISTINCT CASE WHEN is_completed THEN workflow_uuid END) AS Completed_orders_L30D
+        , count(DISTINCT CASE WHEN order_status = 'unfulfilled' THEN workflow_uuid END) AS Unaccepted_orders_L30D
+        , round(1.00 * count(DISTINCT CASE WHEN restaurant_accept_timestamp_local is not null then workflow_uuid else null end) / count(DISTINCT workflow_uuid), 2) AS Acceptance_rate_L30D
+        , round(avg(CAST(DATEDIFF('second', eater_request_timestamp_local, restaurant_accept_timestamp_local) AS DOUBLE)), 2) AS Acceptance_Time_L30D
+        , round(avg(CAST(DATEDIFF('second', restaurant_accept_timestamp_local, courier_begintrip_timestamp_local) AS DOUBLE) / 60), 2) AS Prep_Time_Minutes_L30D
+        , round(avg(CAST(DATEDIFF('second', courier_arrival_pickup_timestamp_local, courier_begintrip_timestamp_local) AS DOUBLE) / 60), 2) AS Courier_Wait_Time_L30D
+        , round(avg(CASE WHEN is_scheduled_order = FALSE THEN CAST(DATEDIFF('second', eater_request_timestamp_local, courier_dropoff_timestamp_local) AS DOUBLE) / 60 END), 2) AS ATD_L30D --actual delivery_time
+        , ROUND(sum(cast(coalesce(original_eater_fare,0) as double)),2) AS eats_gbv_L30D
+
+        from metrics m 
+
+        where m.datestr >= CURRENT_DATE - INTERVAL '30' DAY 
+        AND m.datestr < CURRENT_DATE 
+        group by 1 
+    ),
+    
+metrics_L90D as (
+        select 
+         restaurant_uuid
+        ,count( distinct client_uuid) as total_customers_L90D
+        ,round(cast(SUM(meal_subtotal) as DOUBLE),1)  AS food_sales_L90D
+        ,count(DISTINCT workflow_uuid) AS Requests_L90D
+        , count(DISTINCT CASE WHEN is_completed THEN workflow_uuid END) AS Completed_orders_L90D
+        , count(DISTINCT CASE WHEN order_status = 'unfulfilled' THEN workflow_uuid END) AS Unaccepted_orders_L90D
+        , round(1.00 * count(DISTINCT CASE WHEN restaurant_accept_timestamp_local is not null then workflow_uuid else null end) / count(DISTINCT workflow_uuid), 2) AS Acceptance_rate_L90D
+        , round(avg(CAST(DATEDIFF('second', eater_request_timestamp_local, restaurant_accept_timestamp_local) AS DOUBLE)), 2) AS Acceptance_Time_L90D
+        , round(avg(CAST(DATEDIFF('second', restaurant_accept_timestamp_local, courier_begintrip_timestamp_local) AS DOUBLE) / 60), 2) AS Prep_Time_Minutes_L90D
+        , round(avg(CAST(DATEDIFF('second', courier_arrival_pickup_timestamp_local, courier_begintrip_timestamp_local) AS DOUBLE) / 60), 2) AS Courier_Wait_Time_L90D
+        , round(avg(CASE WHEN is_scheduled_order = FALSE THEN CAST(DATEDIFF('second', eater_request_timestamp_local, courier_dropoff_timestamp_local) AS DOUBLE) / 60 END), 2) AS ATD_L90D --actual delivery_time
+        , ROUND(sum(cast(coalesce(original_eater_fare,0) as double)),2) AS eats_gbv_L90D
+
+        from metrics m 
+
+        where m.datestr >= CURRENT_DATE - INTERVAL '90' DAY 
+        AND m.datestr < CURRENT_DATE 
+        group by 1
+    )
+        
+SELECT 
+b.restaurant_uuid as restaurant_uuid_1,
+b.mega_region,
+b.region,
+
+CAST(ROUND(COALESCE(TRY(CAST(r1.ror_L7D AS  int)),0),0) AS DOUBLE) as ror_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(r2.ror_L30D AS int)),0),0) AS DOUBLE) as ror_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(r3.ror_L90D AS int)),0),0) AS DOUBLE) as ror_L90D,
+
+
+
+CAST(ROUND(COALESCE(TRY(CAST(m3.total_customers_L90D AS  double)),0),1) AS DOUBLE) as total_customers_L90D,
+CAST(ROUND(COALESCE(TRY(CAST(m3.food_sales_L90D AS  double)),0),1) AS DOUBLE) as food_sales_L90D,
+CAST(ROUND(COALESCE(TRY(CAST(m3.Requests_L90D AS  double)),0),1) AS DOUBLE) as Requests_L90D,
+CAST(ROUND(COALESCE(TRY(CAST(m3.Completed_orders_L90D AS  double)),0),1) AS DOUBLE) as Completed_orders_L90D,
+CAST(ROUND(COALESCE(TRY(CAST(m3.Unaccepted_orders_L90D AS  double)),0),1) AS DOUBLE) as Unaccepted_orders_L90D,
+CAST(ROUND(COALESCE(TRY(CAST(m3.Acceptance_rate_L90D AS  double)),0),1) AS DOUBLE) as Acceptance_rate_L90D,
+CAST(ROUND(COALESCE(TRY(CAST(m3.Acceptance_Time_L90D AS  double)),0),1) AS DOUBLE) as Acceptance_Time_L90D,
+CAST(ROUND(COALESCE(TRY(CAST(m3.Prep_Time_Minutes_L90D AS  double)),0),1) AS DOUBLE) as Prep_Time_Minutes_L90D,
+CAST(ROUND(COALESCE(TRY(CAST(m3.Courier_Wait_Time_L90D AS  double)),0),1) AS DOUBLE) as Courier_Wait_Time_L90D,
+CAST(ROUND(COALESCE(TRY(CAST(m3.ATD_L90D AS  double)),0),1) AS DOUBLE) as ATD_L90D,
+CAST(ROUND(COALESCE(TRY(CAST(m3.eats_gbv_L90D AS  double)),0),1) AS DOUBLE) as eats_gbv_L90D,
+
+CAST(ROUND(COALESCE(TRY(CAST(m2.total_customers_L30D AS  double)),0),1) AS DOUBLE) as total_customers_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(m2.food_sales_L30D AS  double)),0),1) AS DOUBLE) as food_sales_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(m2.Requests_L30D AS  double)),0),1) AS DOUBLE) as Requests_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(m2.Completed_orders_L30D AS  double)),0),1) AS DOUBLE) as Completed_orders_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(m2.Unaccepted_orders_L30D AS  double)),0),1) AS DOUBLE) as Unaccepted_orders_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(m2.Acceptance_rate_L30D AS  double)),0),1) AS DOUBLE) as Acceptance_rate_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(m2.Acceptance_Time_L30D AS  double)),0),1) AS DOUBLE) as Acceptance_Time_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(m2.Prep_Time_Minutes_L30D AS  double)),0),1) AS DOUBLE) as Prep_Time_Minutes_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(m2.Courier_Wait_Time_L30D AS  double)),0),1) AS DOUBLE) as Courier_Wait_Time_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(m2.ATD_L30D AS  double)),0),1) AS DOUBLE) as ATD_L30D,
+CAST(ROUND(COALESCE(TRY(CAST(m2.eats_gbv_L30D AS  double)),0),1) AS DOUBLE) as eats_gbv_L30D,
+
+CAST(ROUND(COALESCE(TRY(CAST(m1.total_customers_L7D AS  double)),0),1) AS DOUBLE) as total_customers_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(m1.food_sales_L7D AS  double)),0),1) AS DOUBLE) as food_sales_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(m1.Requests_L7D AS  double)),0),1) AS DOUBLE) as Requests_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(m1.Completed_orders_L7D AS  double)),0),1) AS DOUBLE) as Completed_orders_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(m1.Unaccepted_orders_L7D AS  double)),0),1) AS DOUBLE) as Unaccepted_orders_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(m1.Acceptance_rate_L7D AS  double)),0),1) AS DOUBLE) as Acceptance_rate_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(m1.Acceptance_Time_L7D AS  double)),0),1) AS DOUBLE) as Acceptance_Time_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(m1.Prep_Time_Minutes_L7D AS  double)),0),1) AS DOUBLE) as Prep_Time_Minutes_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(m1.Courier_Wait_Time_L7D AS  double)),0),1) AS DOUBLE) as Courier_Wait_Time_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(m1.ATD_L7D AS  double)),0),1) AS DOUBLE) as ATD_L7D,
+CAST(ROUND(COALESCE(TRY(CAST(m1.eats_gbv_L7D AS  double)),0),1) AS DOUBLE) as eats_gbv_L7D,
+
+
+CAST(ROUND(COALESCE(TRY(CAST(rm.ror_LM AS int)),0),0) AS DOUBLE) as ror_LM, ----------------------------------------NEW
+CAST(ROUND(COALESCE(TRY(CAST(mm.food_sales_LM AS  double)),0),1) AS DOUBLE) as Actual_Monthly_Sales,----------------------------------------NEW
+CAST(ROUND(COALESCE(
+CASE WHEN TRY(((100.00*mm.food_sales_LM)/rm.ror_LM))  IS NULL 
+THEN 0 ELSE ((100.00*mm.food_sales_LM)/rm.ror_LM) - mm.food_sales_LM END ,0),1) AS DOUBLE) AS  Missed_Monthly_Sales_ror----------------------------------------NEW
+
+--((100*Sales)/ROR)-SALES
+
+--CAST(round(COALESCE(TRY((m1.food_sales_L7D*1.00) / (r1.ror_L7D*1.00)),0),0) AS DOUBLE)   as potential_sales_L7D,
+--CAST(round(COALESCE(TRY((m2.food_sales_L30D*1.00) / (r2.ror_L30D*1.00)),0),0) AS DOUBLE)   as potential_sales_L30D,
+--CAST(round(COALESCE(TRY((m3.food_sales_L90D*1.00) / (r3.ror_L90D*1.00)),0),0) AS DOUBLE)   as potential_sales_L90D,
+--
+--CAST(ROUND(COALESCE(COALESCE(TRY((m1.food_sales_L7D*1.00) / ( r1.ror_L7D*1.00)),0) - m1.food_sales_L7D,0),1) AS DOUBLE) AS  missed_sales_opportunity_L7D,
+--CAST(ROUND(COALESCE(COALESCE(TRY((m2.food_sales_L30D*1.00) / (r2.ror_L30D*1.00)),0) - m2.food_sales_L30D,0),1) AS DOUBLE) AS  missed_sales_opportunity_L30D,
+--CAST(ROUND(COALESCE(COALESCE(TRY((m3.food_sales_L90D*1.00) / (r3.ror_L90D*1.00)),0) - m3.food_sales_L90D,0),1) AS DOUBLE) AS  missed_sales_opportunity_L90D
+
+
+
+FROM base b 
+LEFT JOIN ror_LM rm ON rm.restaurant_uuid = b.restaurant_uuid----------------------------------------NEW
+LEFT JOIN ror_L7D r1 ON r1.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN ror_L30D r2 ON r2.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN ror_L90D r3 ON r3.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN metrics_L7D m1 ON m1.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN metrics_L30D m2 ON m2.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN metrics_L90D m3 ON m3.restaurant_uuid = b.restaurant_uuid
+LEFT JOIN metrics_LM mm  ON mm.restaurant_uuid = b.restaurant_uuid----------------------------------------NEW
+
